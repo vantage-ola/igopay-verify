@@ -229,6 +229,30 @@ CARGO_HOME="$PWD/.cargo-home" CARGO_TARGET_DIR="$PWD/target" cargo test
 
 ## Test coverage
 
+`tests/registration.rs` — 33 vectors. The headline is
+**`a_genuine_attestation_over_a_different_key_is_refused`**: a real, in-date chain that
+roots to Google, attests to hardware, and belongs to another device admits nobody, because
+the attested key is compared against the key being certified. Without that one comparison
+a scraped attestation certifies a *software* key, and every other check here is hygiene.
+Paired with `the_same_attestation_over_its_own_key_registers`, so the check is about the
+binding rather than about rejecting anything unusual.
+
+The other load-bearing vector is
+**`raising_attestation_from_tee_to_strongbox_does_not_change_the_cap`** — D4 as an
+executable claim rather than a paragraph. `TieringInputs` has no attestation field, so the
+only way to attempt attestation-scaled caps is to register twice with different hardware
+and compare.
+
+Plus: software attestation refused and StrongBox admitted on the same gate; challenges
+single-use, expiring, minimum-length, non-zero, non-reissuable, and **burnt even by a
+failed attempt** (grinding); an attestation echoing another session's challenge refused;
+KYC, clean history and a guarantor each raising the cap while history cannot climb past the
+KYC ceiling; absurd history saturating instead of overflowing; a fork on record refusing
+outright rather than merely capping to zero; verified boot required by default and waivable
+deliberately; `RefusingVerifier` admitting nobody; expiry and root failures carried through
+with their own reasons intact; and the issued certificate verifying under the issuer's own
+key before it is returned.
+
 `tests/registry.rs` — 14 vectors. The headline is
 **`cross_payee_double_spend_is_caught_by_the_issuer`**: two payees each accept a promise
 at the same `seq`, neither can prove a fork locally, and the issuer's second submission
@@ -305,12 +329,13 @@ crashes.
 
 ## Not yet built (and why)
 
-**Registration (attestation → certificate) and tiering.** Both hang off the D4
-attestation gate, and the measurement that decides its shape — whether a *budget*
-handset produces a chain rooting to Google — is still outstanding
-(`research/09-phase0-results.md` §3, `tools/attest-probe/`). The Note 20 control passes;
-the Poco C71 has not been probed. Building the policy before that answer arrives would be
-guessing.
+**A production attestation verifier.** Registration and tiering are built (see below), but
+the only `AttestationVerifier` in-tree is `RefusingVerifier`, which admits nobody. That is
+the correct default — an issuer that forgets to wire the gate should register no devices,
+not every device — and wiring the real one means driving the checks
+`tools/verify_attestation.py` already performs against Google's pinned roots and status
+list. Deliberately not a second X.509 implementation inside this crate: two gates that
+admit different devices is worse than one gate.
 
 **Block-list distribution.** Publication is done; *getting* a signed list to a device that
 is rarely online is a transport problem and not solved here. The saving grace is that the

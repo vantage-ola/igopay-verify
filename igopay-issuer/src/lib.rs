@@ -35,6 +35,15 @@
 //! * [`mirror`] — the log as plain text for a public repository: one line per publication,
 //!   so an append is one added line in a diff and a rewrite is visible to anyone reading the
 //!   repository's history, cryptography or no cryptography.
+//! * [`registration`] — attestation → certificate, and the tiering that sets the caps.
+//!   The hardware check is a **binary admission gate**, not a dial: `09` §3 measured
+//!   StrongBox absent from the target device class and the attestation chain valid for
+//!   only 13 days, so there is neither a distribution to price against nor anything
+//!   durable to re-attest. Caps come from fork-free history, KYC and vouching instead,
+//!   and [`registration::TieringInputs`] has no attestation field so that decision
+//!   cannot quietly erode. Chain verification itself is a seam
+//!   ([`registration::AttestationVerifier`]) because `tools/verify_attestation.py` is the
+//!   reference implementation and a second one could disagree with it.
 //! * [`settlement`] — the [`settlement::SettlementAdapter`] seam. `08` §6 decision 2:
 //!   make it an interface from day one so the rail and jurisdiction question stays open.
 //!   Only `NoOpSettlement` and `ManualSettlement` exist now; NIP and Sui are later
@@ -42,16 +51,18 @@
 //!
 //! ## What is deliberately NOT here yet
 //!
-//! Registration (attestation → certificate) and tiering. Both depend on the D4
-//! attestation gate, and the measurement that decides its shape — whether a *budget*
-//! handset produces a chain rooting to Google — is still outstanding
-//! (`research/09-phase0-results.md` §3, `tools/attest-probe/`). Building the policy
-//! before that answer arrives would be guessing.
+//! A production [`registration::AttestationVerifier`]. The only implementation in-tree is
+//! [`registration::RefusingVerifier`], which admits nobody — the correct default, since an
+//! issuer that forgets to wire a real one should register no devices rather than every
+//! device. Wiring the real gate means driving the checks
+//! `tools/verify_attestation.py` already performs, against Google's pinned roots and
+//! status list.
 
 pub mod anchor;
 pub mod checkpoint;
 pub mod mirror;
 pub mod publish;
+pub mod registration;
 pub mod registry;
 pub mod settlement;
 
@@ -61,5 +72,11 @@ pub use anchor::{
 };
 pub use checkpoint::{publish_with_checkpoint, CheckpointLog, CheckpointedPublication, LogError};
 pub use publish::{publish_block_list, PublishParams};
+pub use registration::{
+    decide_grant, inputs_from_registry, register, AttestationRefusal, AttestationVerdict,
+    AttestationVerifier, ChallengeBook, ChallengeError, Grant, Guarantor, KycCaps, KycLevel,
+    RefusingVerifier, RegistrationRefusal, RegistrationRequest, SecurityLevel, TieringInputs,
+    TieringPolicy, VerifiedBoot, MIN_CHALLENGE_LEN,
+};
 pub use registry::{PromiseRegistry, Submission, SubmitError};
 pub use settlement::{ManualSettlement, NoOpSettlement, SettlementAdapter, SettlementStatus};

@@ -1,8 +1,8 @@
 This repository is a projection of a private repository, not the place work happens.
 
-source-commit: 96d89cf723214b9d404b96cf6c2632070d86e0cf
+source-commit: 99275169edbe034ae8e765e0c11f8a26022a37d1
 generated-by:  tools/publish-verifier.sh
-files-copied:  60
+files-copied:  62
 
 What that means, and what it does not:
 
