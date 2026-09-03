@@ -121,7 +121,7 @@ its tests establish *what*.
 ## Provenance, and its limits
 
 This repository is generated from a private one — see `PROVENANCE` for the exact source commit
-(`f757b02e0188`). You cannot check that stamp from here, and you do not have to: the
+(`9593cb8e8b36`). You cannot check that stamp from here, and you do not have to: the
 verification does not trust this repository or its authors. It checks the issuer's signatures.
 
 ## Honest limits
@@ -134,8 +134,19 @@ consistent history that happens to be wrong.
 compared. A witness cosignature is what makes a *payee* able to refuse on the spot; without one,
 detection waits for two devices to meet.
 
-**Nothing here has been used in production.** No issuer key exists yet, and no witness has been
-appointed. The log is currently empty and says so.
+**Nothing here has been used in production.** The issuer's publication key exists and is held in
+hardware, but no block list has been published, no witness has been appointed, and the log is
+empty and says so. Until a witness independent of the issuer holds a key, a cosignature proves
+only that the issuer cosigned its own history — which is why the tools call that a mechanism test
+rather than an assurance.
+
+**The issuer's key is not yet anchored outside its own mirror.** `igopay-mirror verify` reads the
+issuer's public key from the mirror it is checking, so it confirms that history is consistent
+*under the key that mirror declares*. That is enough to catch an issuer telling two stories to two
+devices, because devices receive the key when they are enrolled and do not take it from here. It is
+not enough for a stranger auditing from scratch: two mirrors under two different keys would each
+verify. The fix is the same one used for the commit-signing key above — publish the publication key
+somewhere other than the mirror — and it will land with the first publication.
 
 ## Licence
 
