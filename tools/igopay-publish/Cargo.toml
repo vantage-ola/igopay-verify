@@ -1,0 +1,22 @@
+[package]
+name = "igopay-publish"
+version = "0.1.0"
+edition = "2021"
+description = "The issuer's publishing tool (B7/B13): builds a signed block list and its checkpoint, using a key this process cannot read. Custody is a configuration choice, not a code change."
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "igopay-publish"
+path = "src/main.rs"
+
+[dependencies]
+# Every rule lives in the libraries. This crate reads files, shells out to whatever holds the
+# key, and writes artefacts — the same division as igopay-mirror and igopay-witness.
+igopay-core = { path = "../../igopay-core" }
+igopay-issuer = { path = "../../igopay-issuer" }
+
+# Signature shape only: PKCS#11 tokens and cloud KMS both return DER rather than raw r‖s, and
+# neither guarantees low-S — which the core rejects, for the same reason it rejects it
+# everywhere (a malleated signature is a forged fork proof waiting to happen). This crate
+# converts and normalises. It never holds, generates or touches a private key.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

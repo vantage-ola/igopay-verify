@@ -1,11 +1,13 @@
 # The verifier has to build, or publishing it proves nothing.
 #
-# This repository is four standalone crates (no workspace root Cargo.toml):
+# This repository is five standalone crates (no workspace root Cargo.toml):
 #   igopay-core          the protocol, #![no_std]: canonical CBOR, P-256 verification, the
 #                        hash chain, the block list, checkpoints and witness cosignatures
 #   igopay-issuer        the published mirror format and the issuer's append-only log
 #   tools/igopay-mirror  the CLI an auditor runs: `igopay-mirror verify <dir>`
 #   tools/igopay-witness the CLI an independent witness runs
+#   tools/igopay-publish the CLI the issuer runs — here so you can check that blocking a payer
+#                        takes a fork proof, not a decision
 
 name: CI
 
@@ -39,19 +41,23 @@ jobs:
             igopay-issuer
             tools/igopay-mirror
             tools/igopay-witness
+            tools/igopay-publish
       - name: Format
         run: |
-          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness tools/igopay-publish; do
             (cd "$c" && cargo fmt --check)
           done
       - name: Clippy
         run: |
-          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness tools/igopay-publish; do
             (cd "$c" && cargo clippy --all-targets -- -D warnings)
           done
       - name: Test
         run: |
-          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+          # igopay-publish's tests drive a real openssl-backed signer, so they need `openssl` and
+          # `xxd`. Both are present on GitHub's ubuntu images. openssl is deliberate: it returns
+          # DER and makes no low-S promise, which is exactly what a custody seam has to convert.
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness tools/igopay-publish; do
             (cd "$c" && cargo test --all-targets)
           done
       - name: The full fork-property sweep (ignored by default, ~90s)

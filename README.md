@@ -84,6 +84,7 @@ independence is the whole contribution.
 | `igopay-issuer/` | The published mirror format, the issuer's append-only checkpoint log, and cross-payee fork detection. No network, no database. |
 | `tools/igopay-mirror/` | The CLI an auditor runs. Pure I/O — every rule it enforces lives in the crates above, so `verify` is not a second implementation that could disagree with the one phones run. |
 | `tools/igopay-witness/` | The CLI a witness runs. Deliberately does **not** link `igopay-issuer`: a witness carrying the issuer's code would make the separation this rests on a naming convention rather than a fact. |
+| `tools/igopay-publish/` | The CLI the issuer runs. Included not because you need it, but because it is where you can check that **a payer can only be blocked with a fork proof** — two of their own signatures over conflicting promises. It also cannot read the signing key: custody is an external command, so the same tool works with a Secure Enclave, a StrongBox-backed app, a PKCS#11 token or a cloud KMS. |
 
 Each crate has its own README with the reasoning, and the tests are written as adversarial pairs —
 one honest artefact, one from the other story — including the pairs that must **not** convict.
@@ -120,7 +121,7 @@ its tests establish *what*.
 ## Provenance, and its limits
 
 This repository is generated from a private one — see `PROVENANCE` for the exact source commit
-(`101c7278b0db`). You cannot check that stamp from here, and you do not have to: the
+(`f757b02e0188`). You cannot check that stamp from here, and you do not have to: the
 verification does not trust this repository or its authors. It checks the issuer's signatures.
 
 ## Honest limits

@@ -1,13 +1,13 @@
 This repository is a projection of a private repository, not the place work happens.
 
-source-commit: 101c7278b0db5365f6e90663b99806d4b3e69648
+source-commit: f757b02e018852e4e3a4d6e26aafb93469603b15
 generated-by:  tools/publish-verifier.sh
-files-copied:  54
+files-copied:  60
 
 What that means, and what it does not:
 
-  * The code here is byte-identical to the four crates at that commit. The private repository's
-    CI fails if this projection is out of date, so it cannot silently fall behind.
+  * The code here is byte-identical to the 5 published crates at that commit. The private
+    repository's CI fails if this projection is out of date, so it cannot silently fall behind.
   * You cannot check that claim from here alone — you would need the private repository. What you
     CAN do is the thing that matters: build these crates and re-verify the published log
     yourself. The verification does not trust this repository, or us. It checks signatures.
