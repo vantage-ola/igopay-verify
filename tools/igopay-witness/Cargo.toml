@@ -1,0 +1,29 @@
+[package]
+name = "igopay-witness"
+version = "0.1.0"
+edition = "2021"
+description = "Holds a witness's key and its log, and cosigns one head per issuer log position (B7). A deliberately separate party from the issuer: it does not link igopay-issuer."
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "igopay-witness"
+path = "src/main.rs"
+
+[dependencies]
+# The rule this tool enforces — at most one head per log position, ever — lives in
+# `igopay_core::witness::WitnessLog`, and so does every signature check. This crate is the
+# I/O shell: read state, hand it to the library, write state back.
+#
+# Note what is NOT here: `igopay-issuer`. A witness that linked the issuer's crate would be
+# carrying the code of the party it exists to check, and the separation B7 depends on would
+# be a naming convention rather than a fact. That is why hex and the line container live in
+# igopay-core (`igopay_core::hex`) instead of in the issuer's mirror module.
+igopay-core = { path = "../../igopay-core" }
+
+# Signing, for real. Unlike `igopay-mirror` — where p256 exists only to mint throwaway demo
+# keys — signing IS this tool's job, so this dependency is load-bearing.
+#
+# A witness key on a laptop is a rehearsal, not a deployment: a real witness's key belongs in
+# a platform keystore behind `igopay_core::crypto::Signer`, which is what the mobile FFI
+# exposes. See `init`'s output, which says so out loud.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

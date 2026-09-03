@@ -1,0 +1,27 @@
+[package]
+name = "igopay-core"
+version = "0.1.0"
+edition = "2021"
+description = "Offline payment-promise protocol core: deterministic CBOR codec, ECDSA P-256 verification, hash-chained fork detection, uptime-anchored slot validation. No private keys inside the core."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# ECDSA P-256 (secp256r1) to match the iOS Secure Enclave (D5). Verification lives
+# here; signing is a platform trait (Keystore / Secure Enclave), never in the core.
+# The canonical CBOR codec is hand-rolled (src/codec.rs) so that byte-for-byte
+# determinism is an auditable property of THIS crate, not of a serializer's config.
+#
+# default-features = false is load-bearing: p256's default features enable `std`,
+# which drags in getrandom, which has no bare-metal implementation and breaks the
+# thumbv7em-none-eabi no_std build (CI's no-std-build job). We are #![no_std], so we
+# opt into only `ecdsa` + `arithmetic` and leave std/alloc/getrandom out of the tree.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+# Same reasoning: sha2's default features pull in std.
+sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+# Deterministic in-process signer used ONLY to build reproducible test vectors.
+rand_core = "0.6"
+# hex is only used by the golden-vector tests, never by the library, so it stays a
+# dev-dependency and out of the no_std build.
+hex = "0.4"

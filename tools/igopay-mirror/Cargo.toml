@@ -1,0 +1,23 @@
+[package]
+name = "igopay-mirror"
+version = "0.1.0"
+edition = "2021"
+description = "Publishes and audits the issuer's checkpoint log as a public append-only text mirror (B7). Reads and writes files; all format and verification logic lives in igopay-issuer and igopay-core."
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "igopay-mirror"
+path = "src/main.rs"
+
+[dependencies]
+# The mirror format and every verification rule live in the libraries, not here. This crate
+# is the I/O shell: read files, hand the bytes to the same code an auditor would run, print
+# the result. Keeping it that way is what lets `verify` be trustworthy — it is not a second
+# implementation of anything.
+igopay-core = { path = "../../igopay-core" }
+igopay-issuer = { path = "../../igopay-issuer" }
+
+# Signing, for the `demo` command ONLY: it mints a throwaway issuer and witness from fixed
+# seeds so the whole publication loop can be exercised before an issuer service exists. A
+# real deployment's keys never appear here — the service signs, this tool only publishes.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

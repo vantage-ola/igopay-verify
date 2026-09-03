@@ -1,0 +1,20 @@
+[package]
+name = "igopay-issuer"
+version = "0.1.0"
+edition = "2021"
+description = "Issuer-side logic: cross-payee fork detection via (payer, seq) dedupe, the fork-proof engine, and the pluggable settlement seam. No network, no database — pure domain logic."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# The issuer MUST verify certificates and fork proofs with the SAME code the devices
+# run. Reimplementing verification server-side would let the issuer and a payee
+# disagree about whether a fork proof is valid — the one disagreement this protocol
+# cannot survive. So the core is a direct dependency, not a spec to reimplement.
+#
+# igopay-core is no_std + alloc; it links into this std crate exactly as it does into
+# igopay-ffi.
+igopay-core = { path = "../igopay-core" }
+
+[dev-dependencies]
+# Deterministic in-process signer for reproducible test vectors only.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }

@@ -1,0 +1,108 @@
+# The verifier has to build, or publishing it proves nothing.
+#
+# This repository is four standalone crates (no workspace root Cargo.toml):
+#   igopay-core          the protocol, #![no_std]: canonical CBOR, P-256 verification, the
+#                        hash chain, the block list, checkpoints and witness cosignatures
+#   igopay-issuer        the published mirror format and the issuer's append-only log
+#   tools/igopay-mirror  the CLI an auditor runs: `igopay-mirror verify <dir>`
+#   tools/igopay-witness the CLI an independent witness runs
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: Format, lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            igopay-core
+            igopay-issuer
+            tools/igopay-mirror
+            tools/igopay-witness
+      - name: Format
+        run: |
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+            (cd "$c" && cargo fmt --check)
+          done
+      - name: Clippy
+        run: |
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+            (cd "$c" && cargo clippy --all-targets -- -D warnings)
+          done
+      - name: Test
+        run: |
+          for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness; do
+            (cd "$c" && cargo test --all-targets)
+          done
+      - name: The full fork-property sweep (ignored by default, ~90s)
+        working-directory: igopay-core
+        run: cargo test --test fork_property -- --ignored
+
+  no-std-build:
+    name: no_std bare-target build (core)
+    runs-on: ubuntu-latest
+    # If the protocol core ever picks up an implicit std dependency, this fails. It matters
+    # because the same code is meant to run inside a phone app and on constrained hardware.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: igopay-core
+      - name: Build core for thumbv7em-none-eabi (lib only)
+        working-directory: igopay-core
+        run: cargo build --lib --target thumbv7em-none-eabi
+
+  verify-a-demo-mirror:
+    name: Verify a mirror end to end
+    runs-on: ubuntu-latest
+    # Proves the auditor's path actually works, on a throwaway mirror the tool mints itself:
+    # publish, witness, attest, verify. If `igopay-mirror verify` ever stops being usable by a
+    # stranger with a clone, this is what says so.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            tools/igopay-mirror
+            tools/igopay-witness
+      - name: Build the tools
+        run: |
+          (cd tools/igopay-mirror && cargo build --release)
+          (cd tools/igopay-witness && cargo build --release)
+      - name: Publish, witness, attest, verify
+        run: |
+          set -euo pipefail
+          M=tools/igopay-mirror/target/release/igopay-mirror
+          W=tools/igopay-witness/target/release/igopay-witness
+          $M demo /tmp/mirror 3
+          $W init /tmp/witness --issuer "$(cat /tmp/mirror/issuer.pub)"
+          $W pubkey /tmp/witness >> /tmp/mirror/witnesses.txt
+          cosig="$($W cosign /tmp/witness "$(tail -1 /tmp/mirror/checkpoints.hex)")"
+          $M attest /tmp/mirror "$cosig"
+          $M verify /tmp/mirror | tee /tmp/report
+          grep -q "OK — every signature and every link verifies" /tmp/report
+          grep -q "THIS-IS-A-DEMO" /tmp/report

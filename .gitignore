@@ -1,0 +1,5 @@
+# Rust build output, and the workspace-local cargo home used on sandboxed machines.
+target/
+.cargo-home/
+
+.DS_Store
