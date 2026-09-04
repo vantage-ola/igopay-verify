@@ -139,7 +139,7 @@ its tests establish *what*.
 ## Provenance, and its limits
 
 This repository is generated from a private one — see `PROVENANCE` for the exact source commit
-(`c40240a44fe5`). You cannot check that stamp from here, and you do not have to: the
+(`da9fed5a6965`). You cannot check that stamp from here, and you do not have to: the
 verification does not trust this repository or its authors. It checks the issuer's signatures.
 
 ## Honest limits
