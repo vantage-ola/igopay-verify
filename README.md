@@ -76,6 +76,24 @@ be talked into cosigning a second head there, which is the exact failure it exis
 A witness run by whoever runs the issuer is a costume. If you are considering being one, that
 independence is the whole contribution.
 
+## Check the code before you trust it
+
+These are five standalone crates with no workspace root, so each is entered on its own. Nothing
+here needs network access, a database, or a key:
+
+    for c in igopay-core igopay-issuer tools/igopay-mirror tools/igopay-witness tools/igopay-publish; do
+        ( cd "$c" && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --all-targets )
+    done
+
+Two more that are worth running, because both have caught real regressions:
+
+    cd igopay-core && cargo build --lib --target thumbv7em-none-eabi   # no hidden std dependency
+    cd igopay-core && cargo test --test fork_property -- --ignored     # the full fork sweep, ~90s
+
+The tests are written as adversarial pairs — one honest artefact, one from the other story —
+including the pairs that must **not** convict, because a verifier that rejects everything passes
+every "must refuse" test and is still worthless.
+
 ## What is here
 
 | Crate | What it is |
@@ -121,7 +139,7 @@ its tests establish *what*.
 ## Provenance, and its limits
 
 This repository is generated from a private one — see `PROVENANCE` for the exact source commit
-(`99275169edbe`). You cannot check that stamp from here, and you do not have to: the
+(`c40240a44fe5`). You cannot check that stamp from here, and you do not have to: the
 verification does not trust this repository or its authors. It checks the issuer's signatures.
 
 ## Honest limits

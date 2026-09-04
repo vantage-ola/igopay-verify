@@ -270,6 +270,139 @@ fn slot_misaligned_rejected() {
     );
 }
 
+// The pair below is the bug `tools/ffi-probe` hit on a real handset, and its fix.
+//
+// B10's slot lattice is anchored at `grant.from` — the second the issuer signed the
+// certificate — not at a clock boundary. `scene()`'s grant starts at 1000 with 60-s
+// granularity, and 1000 is not a multiple of 60, so the two disagree. A payer that
+// names "the current minute" the obvious way produces a slot every payee refuses.
+// `SlotGrant::slot_at` exists so no caller has to know that.
+
+#[test]
+fn a_clock_floored_slot_is_refused() {
+    let s = scene();
+    let v = P256Verifier;
+    // 1010 is inside the first 60-s period of the grant. Flooring it to a clock
+    // boundary gives 960, which is BELOW the anchor at 1000 — so the failure is
+    // `SlotOutsideGrant`, and the promise never even reaches the alignment check.
+    let now = 1010;
+    let clock_floored = now / 60 * 60;
+    assert_eq!(clock_floored, 960);
+    let clock = FixedClock(now);
+    let bl = BlockList::new(4096, 4);
+    let p = make_promise(
+        &s.payer,
+        &s.cert,
+        s.payee.public_key(),
+        10_000,
+        CURRENCY,
+        &s.nonce,
+        11,
+        [0u8; 32],
+        clock_floored,
+    );
+    assert_eq!(
+        verify_promise(&p, &ctx(&s, &v, &clock, &bl, None)),
+        Err(VerifyError::SlotOutsideGrant)
+    );
+}
+
+#[test]
+fn the_slot_slot_at_derives_is_accepted_at_the_same_instant() {
+    // Same payer, same certificate, same second as the test above. The ONLY difference
+    // is where the slot came from — which is the whole point of having the method.
+    let s = scene();
+    let v = P256Verifier;
+    let now = 1010;
+    let clock = FixedClock(now);
+    let bl = BlockList::new(4096, 4);
+    let slot = s.cert.slot_grant.slot_at(now).expect("in-grant instant");
+    assert_eq!(slot, 1000);
+    let p = make_promise(
+        &s.payer,
+        &s.cert,
+        s.payee.public_key(),
+        10_000,
+        CURRENCY,
+        &s.nonce,
+        11,
+        [0u8; 32],
+        slot,
+    );
+    assert!(verify_promise(&p, &ctx(&s, &v, &clock, &bl, None)).is_ok());
+}
+
+#[test]
+fn slot_at_is_accepted_at_every_boundary_of_the_grant() {
+    // The documented guarantee, checked against the real verifier rather than restated:
+    // whatever `slot_at` returns, `verify_promise` accepts at that same instant. The
+    // instants are the ones where an off-by-one would show — the anchor, either side of
+    // a period edge, and both ends of the window.
+    let s = scene();
+    let v = P256Verifier;
+    let bl = BlockList::new(4096, 4);
+    let g = &s.cert.slot_grant;
+    for now in [
+        g.from,
+        g.from + 1,
+        g.from + 59,
+        g.from + 60,
+        g.from + 61,
+        (g.from + g.to) / 2,
+        g.to - 1,
+        g.to,
+    ] {
+        let slot = g.slot_at(now).unwrap_or_else(|| panic!("no slot at {now}"));
+        let p = make_promise(
+            &s.payer,
+            &s.cert,
+            s.payee.public_key(),
+            10_000,
+            CURRENCY,
+            &s.nonce,
+            11,
+            [0u8; 32],
+            slot,
+        );
+        let clock = FixedClock(now);
+        assert!(
+            verify_promise(&p, &ctx(&s, &v, &clock, &bl, None)).is_ok(),
+            "slot {slot} derived at {now} was refused"
+        );
+    }
+}
+
+#[test]
+fn slot_at_never_derives_a_slot_the_verifier_would_refuse() {
+    // The same guarantee as a sweep over every second of the grant and a margin either
+    // side of it. Signing 2881 promises would make this a slow test for no extra
+    // coverage, so this asserts the verifier's four slot predicates directly — they are
+    // the checks a promise carrying this slot would face.
+    let g = SlotGrant {
+        from: 1000,
+        to: 1000 + 2880,
+        granularity_secs: 60,
+    };
+    for now in (g.from - 100)..=(g.to + 100) {
+        match g.slot_at(now) {
+            None => assert!(
+                now < g.from || now > g.to,
+                "no slot inside the grant at {now}"
+            ),
+            Some(slot) => {
+                assert!(slot >= g.from, "slot {slot} below the anchor");
+                assert!(slot <= g.to, "slot {slot} past the window");
+                assert_eq!(
+                    (slot - g.from) % g.granularity_secs,
+                    0,
+                    "slot {slot} off-lattice"
+                );
+                assert!(slot <= now, "slot {slot} is future-dated at {now}");
+            }
+        }
+    }
+}
+
 #[test]
 fn seq_replay_rejected_when_known() {
     let s = scene();

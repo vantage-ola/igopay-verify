@@ -64,6 +64,17 @@ The grant is a pre-allocated set of slots spaced `granularity_secs` apart from
   `SlotMisaligned`. The spacing is what makes the grant double as a rate limit.
 - **not future** — `slot ≤ now + SKEW_TOLERANCE_SECS`, else `SlotInFuture`.
 
+**Derive slots with `SlotGrant::slot_at(now)`, never from the clock.** The lattice is
+anchored at `grant.from` — the second the issuer signed the certificate — so it sits at
+an arbitrary offset that differs per payer and moves on every refresh. The obvious
+`now / granularity * granularity` floors to a *clock* boundary instead: below the anchor
+during the first period (`SlotOutsideGrant`), off-lattice after it (`SlotMisaligned`).
+`slot_at` returns a slot that passes all three checks above at that same `now`, or
+`None` — which means this certificate grants no slot at this moment and needs
+refreshing, not retrying. `igopay-ffi` exports it as `current_slot(cert_bytes, now_utc)`
+so no app reimplements the rule; the first one that tried got it wrong
+(`research/09-phase0-results.md` §6).
+
 ## Fork proofs are portable evidence (B8)
 
 `ForkProof` serializes to a canonical 2-element array (`encode`/`from_bytes`) so it
@@ -287,16 +298,18 @@ CARGO_HOME="$PWD/.cargo-home" CARGO_TARGET_DIR="$PWD/target" cargo test
 
 ## Test coverage (Phase 1 exit criterion)
 
-`tests/adversarial.rs` — 31 vectors: wrong payee, replayed nonce, over-cap,
+`tests/adversarial.rs` — 39 vectors: wrong payee, replayed nonce, over-cap,
 slot-before-grant, **slot-misaligned**, future slot, slot-within-skew, seq replay,
 prev_hash chain break, linked successor accepted, seq-gap not asserted, blocked
 payer, forged issuer/payer signatures, high-S malleability, truncated/trailing
 bytes, roundtrip identity, fork detection (genuine double spend,
 duplicate-is-not-a-fork, different-payer, fabricated-proof-rejected,
-**fork-proof roundtrip**), and **certificate validity** (in-window,
-inclusive boundaries, not-yet-valid, expired, inverted window,
-grant-outside-validity on both ends, expiry-before-other-checks ordering,
-windowed-cert roundtrip).
+**fork-proof roundtrip**), **slot derivation** (a clock-floored slot refused, the
+slot `slot_at` derives accepted at that same instant, every grant boundary accepted,
+and a sweep over every second of a grant against the verifier's own predicates),
+and **certificate validity** (in-window, inclusive boundaries, not-yet-valid,
+expired, inverted window, grant-outside-validity on both ends,
+expiry-before-other-checks ordering, windowed-cert roundtrip).
 
 `tests/fork_property.rs` — the exit criterion. A **small grid** (120 pairs) runs by
 default to keep `cargo test` fast; the **full 3,240-pair sweep** is `#[ignore]`d and run

@@ -52,6 +52,42 @@ pub struct SlotGrant {
 }
 
 impl SlotGrant {
+    /// The slot a payment made at `now` belongs to, or `None` when `now` falls outside
+    /// this grant or the grant names no slots at all.
+    ///
+    /// **The slot lattice is anchored to `from`, not to the wall clock.** The valid slots
+    /// are `from`, `from + granularity_secs`, `from + 2*granularity_secs`, … up to `to`.
+    /// The issuer sets `from` to the second it issued the certificate (see `decide_grant`
+    /// in `igopay-issuer`), so that lattice sits at an arbitrary offset that differs per
+    /// payer and moves on every certificate refresh.
+    ///
+    /// The consequence is a trap, and it caught the first real caller of this crate. The
+    /// obvious way to name "the current hour" — `now / granularity * granularity` — floors
+    /// to a *clock* boundary, which lands below `from` and is refused by every payee with
+    /// `SlotOutsideGrant`, or lands off-lattice and is refused with `SlotMisaligned`. It
+    /// is wrong in a way that looks right, is invisible until a payee runs the check, and
+    /// no amount of documentation would have prevented it: `tools/ffi-probe` was written
+    /// against the doc comments and still got it wrong. So the derivation is a function
+    /// here rather than a rule callers are asked to reimplement.
+    ///
+    /// Guarantee: a slot returned by this method passes *every* slot check in
+    /// [`crate::verify::verify_promise`] evaluated at the same `now` — in-window, aligned,
+    /// and never future-dated. There is no input for which this hands back a slot the
+    /// verifier then refuses.
+    pub fn slot_at(&self, now: u64) -> Option<u64> {
+        // A zero granularity names no slots — `verify_promise` refuses such a grant
+        // outright — so there is no honest answer to give. An empty or inverted window
+        // (`to < from`) falls out of the same two bounds checks.
+        if self.granularity_secs == 0 || now < self.from || now > self.to {
+            return None;
+        }
+        // Floor onto the lattice anchored at `from`. `now >= from` here, so the
+        // subtraction cannot wrap, and the result is `<= now`, so a slot from this
+        // method can never trip the future-dating check either.
+        let elapsed = now - self.from;
+        Some(self.from + (elapsed / self.granularity_secs) * self.granularity_secs)
+    }
+
     fn encode(&self, e: &mut Encoder) {
         e.map_head(3);
         e.map_key(0);
@@ -448,5 +484,113 @@ impl PaymentRequest {
         let r = Self::decode(&mut d)?;
         d.finish()?;
         Ok(r)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SlotGrant;
+
+    // A grant anchored at a second that is deliberately NOT a round number, because
+    // that is what the issuer produces: `from` is whatever second registration
+    // happened on. 1000 s of granularity keeps the arithmetic readable.
+    fn grant() -> SlotGrant {
+        SlotGrant {
+            from: 1_757_000_123,
+            to: 1_757_000_123 + 10_000,
+            granularity_secs: 1_000,
+        }
+    }
+
+    #[test]
+    fn the_first_slot_is_the_anchor_itself() {
+        let g = grant();
+        // At the instant of issue, and anywhere in the first period, the slot is `from`.
+        assert_eq!(g.slot_at(g.from), Some(g.from));
+        assert_eq!(g.slot_at(g.from + 1), Some(g.from));
+        assert_eq!(g.slot_at(g.from + 999), Some(g.from));
+    }
+
+    #[test]
+    fn slots_advance_on_the_anchored_lattice_not_the_clock() {
+        let g = grant();
+        assert_eq!(g.slot_at(g.from + 1_000), Some(g.from + 1_000));
+        assert_eq!(g.slot_at(g.from + 1_999), Some(g.from + 1_000));
+        assert_eq!(g.slot_at(g.from + 2_000), Some(g.from + 2_000));
+    }
+
+    #[test]
+    fn flooring_to_a_clock_boundary_fails_in_both_directions() {
+        // The claim in the doc comment, made concrete. `from` is not a round number, so
+        // `now / granularity * granularity` disagrees with the lattice, and it does so in
+        // two distinct ways with two distinct verifier errors.
+        let g = grant();
+
+        // In the FIRST period — a payer who registers and pays within the same period,
+        // which is exactly what `tools/ffi-probe` did — the clock floor lands BELOW the
+        // anchor. The verifier answers `SlotOutsideGrant`.
+        let early = g.from + 500;
+        let floored_early = early / 1_000 * 1_000;
+        assert!(floored_early < g.from);
+        assert_eq!(g.slot_at(early), Some(g.from));
+
+        // Later in the grant the clock floor is inside the window but off-lattice, and
+        // the verifier answers `SlotMisaligned` instead.
+        let later = g.from + 1_500;
+        let floored_later = later / 1_000 * 1_000;
+        assert!(floored_later > g.from && floored_later < g.to);
+        assert_ne!((floored_later - g.from) % 1_000, 0);
+        assert_eq!(g.slot_at(later), Some(g.from + 1_000));
+    }
+
+    #[test]
+    fn outside_the_window_there_is_no_slot() {
+        let g = grant();
+        assert_eq!(g.slot_at(g.from - 1), None);
+        assert_eq!(g.slot_at(g.to + 1), None);
+        // The final instant is still in the grant, and floors into the last full period.
+        assert_eq!(g.slot_at(g.to), Some(g.from + 10_000));
+    }
+
+    #[test]
+    fn a_grant_that_names_no_slots_yields_none() {
+        // Zero granularity: `verify_promise` refuses the grant outright, so there is
+        // nothing to return rather than a division by zero.
+        let g = SlotGrant {
+            from: 100,
+            to: 200,
+            granularity_secs: 0,
+        };
+        assert_eq!(g.slot_at(150), None);
+
+        // Inverted window: no `now` can satisfy both bounds.
+        let inverted = SlotGrant {
+            from: 200,
+            to: 100,
+            granularity_secs: 10,
+        };
+        assert_eq!(inverted.slot_at(150), None);
+    }
+
+    #[test]
+    fn extreme_values_do_not_overflow_or_wrap() {
+        // `from` at the top of the range: the lattice cannot step past `to`, and the
+        // subtraction cannot wrap because `now >= from` is checked first.
+        let g = SlotGrant {
+            from: u64::MAX - 10,
+            to: u64::MAX,
+            granularity_secs: 4,
+        };
+        assert_eq!(g.slot_at(u64::MAX - 10), Some(u64::MAX - 10));
+        assert_eq!(g.slot_at(u64::MAX), Some(u64::MAX - 2));
+        assert_eq!(g.slot_at(u64::MAX - 11), None);
+
+        // A granularity wider than the window: only the anchor slot exists.
+        let wide = SlotGrant {
+            from: 500,
+            to: 600,
+            granularity_secs: u64::MAX,
+        };
+        assert_eq!(wide.slot_at(550), Some(500));
     }
 }
